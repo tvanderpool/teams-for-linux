@@ -1,0 +1,123 @@
+{
+  "project": "teams-for-linux",
+  "branchName": "ralph/multi-window-meetings",
+  "description": "Multi-Window Support (Meetings) — Open meetings in a dedicated BrowserWindow instead of taking over the main window. Includes foundational WindowManager infrastructure, app-quit refactor, and mini-view during screen sharing.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "WindowManager module",
+      "description": "As a developer, I need a central WindowManager module that tracks all open BrowserWindows so that window lifecycle (creation, focus, cleanup, quit) can be managed without coupling logic across app/index.js and mainAppWindow/index.js.",
+      "acceptanceCriteria": [
+        "New file app/windowManager/index.js exists and exports a WindowManager singleton (using EventEmitter or similar).",
+        "WindowManager.register(type, id, browserWindow) adds an entry to the internal registry. type is one of 'main' | 'meeting' | 'chat'. id is a string.",
+        "WindowManager.unregister(id) removes the entry with that id from the registry.",
+        "WindowManager.getAll() returns an array of all registered { type, id, window } entries.",
+        "WindowManager.getByType(type) returns all entries matching that type.",
+        "WindowManager emits an 'all-closed' event immediately after unregister() leaves the registry empty.",
+        "WindowManager.getByType('meeting') returns [] when no meeting window is registered.",
+        "The main window is registered via windowManager.register('main', 'main', window) during app startup in app/mainAppWindow/index.js or app/index.js.",
+        "npm run lint passes."
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "App does not quit unconditionally when a window closes",
+      "description": "As a user, I want closing any window to keep the app process alive so that other open windows and the system tray remain functional.",
+      "acceptanceCriteria": [
+        "onWindowClosed() in app/mainAppWindow/index.js no longer calls app.quit() directly. Instead it calls windowManager.unregister('main').",
+        "app/index.js listens for the windowManager 'all-closed' event and calls app.quit() only when no tray icon is active (i.e. config.appIconPath is falsy or tray is not initialised).",
+        "The existing app.on('window-all-closed') handler in app/index.js is updated or removed so it no longer calls app.quit() unconditionally on Linux.",
+        "Closing the main window while a meeting window is registered does NOT terminate the process.",
+        "When the last registered window closes and there is no tray, the process exits.",
+        "npm run lint passes."
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Tray icon can reopen main window after it has been closed",
+      "description": "As a user, I want clicking the tray icon (or its Show/Open menu item) to bring back the main Teams window even if I closed it, so I am not stranded without a way to reopen it.",
+      "acceptanceCriteria": [
+        "In app/menus/tray.js, the tray click handler and the 'Show' menu item action check whether a main window currently exists (via windowManager.getByType('main').length > 0).",
+        "If no main window exists, a new main window is created (call the same factory used at app startup) and shown.",
+        "If a main window exists but is hidden or minimised, it is shown and focused.",
+        "npm run lint passes."
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Meeting window factory method",
+      "description": "As a developer, I need a dedicated factory function that creates a correctly configured BrowserWindow for a Teams meeting so that meeting windows share the same session, preload, and window-state setup as the main window.",
+      "acceptanceCriteria": [
+        "A new method createMeetingWindow(config) is added to app/mainAppWindow/browserWindowManager.js (or a new module app/meetingWindow/index.js if preferred).",
+        "The meeting BrowserWindow is created with webPreferences.partition set to 'persist:teams-for-linux-session' (same as main window).",
+        "The meeting BrowserWindow uses the same preload script path as the main window.",
+        "The meeting BrowserWindow has a minimum size of 480x320.",
+        "The meeting window's last size and position are saved and restored using electron-window-state with a file name of 'meeting-window-state' (distinct from the main window state).",
+        "The factory registers the created window in WindowManager as type 'meeting' with id 'meeting'.",
+        "The factory calls windowManager.unregister('meeting') in the window's 'closed' event handler.",
+        "The factory does not load any URL — the caller is responsible for calling meetingWindow.loadURL(url).",
+        "npm run lint passes."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Intercept meeting URLs and open them in the meeting window",
+      "description": "As a user, I want joining a Teams meeting to open a dedicated meeting window automatically so that the main Teams window stays on its current view.",
+      "acceptanceCriteria": [
+        "Read app/mainAppWindow/index.js and app/mainAppWindow/browserWindowManager.js before making changes to understand the existing onNewWindow / setWindowOpenHandler and navigation handlers.",
+        "Verify (by reading the code) whether Teams web currently opens meeting URLs via window.open() (caught by setWindowOpenHandler) or via in-page navigation (caught by will-navigate). Implement both paths.",
+        "In the setWindowOpenHandler callback (onNewWindow): when details.url matches config.meetupJoinRegEx, call createMeetingWindow(config), load the URL in it, and return { action: 'deny' }. The existing about:blank auth-flow handling must remain unchanged.",
+        "Add a 'will-navigate' handler on the main window's webContents: if the navigation URL matches config.meetupJoinRegEx, call e.preventDefault(), record the current URL, create a meeting window with that URL, and reload the main window to its pre-navigation URL.",
+        "If a meeting window already exists when a new meeting URL arrives, focus the existing window and call meetingWindow.loadURL(newUrl) instead of creating a second window.",
+        "The main window's displayed content is unchanged after a meeting is intercepted (it stays on calendar / chat / whatever was showing).",
+        "npm run lint passes."
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Meeting window close confirmation dialog",
+      "description": "As a user, I want to be warned before accidentally closing a meeting window so that I do not drop out of a call by mistake, but the window closes automatically when the meeting ends naturally.",
+      "acceptanceCriteria": [
+        "The meeting window's 'close' event handler (set up in the factory from US-004) calls e.preventDefault() and opens a native dialog.showMessageBox with buttons ['Leave', 'Cancel'] and message 'Leave meeting? Closing this window will end your participation.'",
+        "If the user selects 'Cancel' (index 1), the window remains open.",
+        "If the user selects 'Leave' (index 0), a flag is set on the window (e.g. window.forceClose = true) and window.close() is called again — this second close call skips the dialog because the flag is set.",
+        "A 'did-navigate' handler is attached to the meeting window's webContents. If the new URL does NOT match config.meetupJoinRegEx, the flag is set to true and window.close() is called without showing the dialog (Teams-initiated meeting end).",
+        "npm run lint passes."
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Meeting window shrinks to mini view when screen sharing starts",
+      "description": "As a user, I want the meeting window to automatically shrink to a compact size when I start sharing my screen and restore when I stop, so the meeting controls stay accessible without obscuring my shared content.",
+      "acceptanceCriteria": [
+        "Read app/mainAppWindow/index.js and app/browser/preload.js to locate where sendScreenSharingStarted and sendScreenSharingStopped IPC events are sent and handled.",
+        "In the main process IPC handlers for screen-sharing start and stop, identify whether the sender is the meeting window (compare event.sender to meetingWindow.webContents). If the meeting window does not exist, do nothing.",
+        "When screen sharing starts from the meeting window: record meetingWindow.getBounds() as preMiniState, then call meetingWindow.setSize(400, 300). The window must NOT be set to alwaysOnTop.",
+        "When screen sharing stops from the meeting window: call meetingWindow.setBounds(preMiniState) to restore the previous size and position. If preMiniState is null (e.g. sharing stopped before any resize), do nothing.",
+        "preMiniState is reset to null after restoring.",
+        "npm run lint passes."
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
