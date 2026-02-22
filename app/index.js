@@ -22,6 +22,7 @@ const ScreenSharingService = require("./screenSharing/service");
 const PartitionsManager = require("./partitions/manager");
 const IdleMonitor = require("./idle/monitor");
 const AutoUpdater = require("./autoUpdater");
+const windowManager = require("./windowManager");
 const os = require("node:os");
 const isMac = os.platform() === "darwin";
 
@@ -132,6 +133,15 @@ if (gotTheLock) {
   app.on("ready", handleAppReady);
   app.on("quit", () => console.debug("quit"));
   app.on("render-process-gone", onRenderProcessGone);
+  // Prevent Electron's default behaviour of quitting when all windows close.
+  // Quit is controlled by the windowManager 'all-closed' event below.
+  app.on("window-all-closed", () => {});
+  // Quit only when every registered window is gone AND no tray icon keeps the app alive.
+  windowManager.on("all-closed", () => {
+    if (!config.trayIconEnabled) {
+      app.quit();
+    }
+  });
   app.on("will-quit", async () => {
     console.debug("will-quit");
     if (mqttClient) {

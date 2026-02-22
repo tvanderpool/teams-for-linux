@@ -592,7 +592,7 @@ function onWindowClosed() {
   }
 
   window = null;
-  app.quit();
+  windowManager.unregister('main');
 }
 
 function addEventHandlers() {
