@@ -19,6 +19,7 @@ require("../appConfiguration");
 const ConnectionManager = require("../connectionManager");
 const BrowserWindowManager = require("../mainAppWindow/browserWindowManager");
 const windowManager = require("../windowManager");
+const { createMeetingWindow } = require("../meetingWindow");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -555,11 +556,22 @@ function onBeforeSendHeadersHandler(detail, callback) {
   }
 }
 
+function openInMeetingWindow(url) {
+  const existing = windowManager.getByType('meeting');
+  if (existing.length > 0 && !existing[0].window.isDestroyed()) {
+    const meetingWindow = existing[0].window;
+    meetingWindow.focus();
+    meetingWindow.loadURL(url, { userAgent: config.chromeUserAgent });
+  } else {
+    const meetingWindow = createMeetingWindow(config);
+    meetingWindow.once('ready-to-show', () => meetingWindow.show());
+    meetingWindow.loadURL(url, { userAgent: config.chromeUserAgent });
+  }
+}
+
 function onNewWindow(details) {
   if (new RegExp(config.meetupJoinRegEx).test(details.url)) {
-    if (config.onNewWindowOpenMeetupJoinUrlInApp) {
-      window.loadURL(details.url, { userAgent: config.chromeUserAgent });
-    }
+    openInMeetingWindow(details.url);
     return { action: "deny" };
   } else if (
     details.url === "about:blank" ||
@@ -571,6 +583,17 @@ function onNewWindow(details) {
   }
 
   return secureOpenLink(details);
+}
+
+function onWillNavigate(event, url) {
+  if (new RegExp(config.meetupJoinRegEx).test(url)) {
+    event.preventDefault();
+    const currentUrl = window.webContents.getURL();
+    openInMeetingWindow(url);
+    if (currentUrl && currentUrl !== 'about:blank') {
+      window.loadURL(currentUrl, { userAgent: config.chromeUserAgent });
+    }
+  }
 }
 
 function onPageTitleUpdated(_event, title) {
@@ -619,6 +642,7 @@ function addEventHandlers() {
   );
   window.webContents.on("did-finish-load", onDidFinishLoad);
   window.webContents.on("did-frame-finish-load", onDidFrameFinishLoad);
+  window.webContents.on("will-navigate", onWillNavigate);
   window.on("closed", onWindowClosed);
   window.webContents.addListener("before-input-event", onBeforeInput);
 
