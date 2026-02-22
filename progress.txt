@@ -1,3 +1,14 @@
+## 2026-02-22 - US-007
+- What was implemented: Modified `app/screenSharing/service.js` to add mini-view behaviour for the meeting window during screen sharing. Added `const windowManager = require('../windowManager')` import and `#preMiniState = null` private field. In `#handleScreenSharingStarted(event, sourceId)`: after tracking the source ID, checks if `event.sender` equals the meeting window's `webContents`. If so, records `meetingWindow.getBounds()` as `#preMiniState` and calls `meetingWindow.setSize(400, 300)`. In `#handleScreenSharingStopped(event)`: after clearing source and closing preview window, checks if `event.sender` equals the meeting window's `webContents`. If so and `#preMiniState` is not null, calls `meetingWindow.setBounds(#preMiniState)` and resets `#preMiniState = null`.
+- Files changed:
+  - `app/screenSharing/service.js` (added windowManager import, #preMiniState field, mini-view logic in screen-sharing start/stop handlers)
+- **Learnings for future iterations:**
+  - `ipcMain.on` handler methods receive `event` as their first parameter; renaming to `_event` (unused) loses the ability to identify the sender. Changed from `_event` to `event` to access `event.sender`.
+  - `event.sender` in an `ipcMain.on` handler is the `WebContents` that sent the IPC message. Compare it directly to `meetingWindow.webContents` (strict equality works for reference comparison).
+  - `windowManager.getByType('meeting')` returns `[]` when no meeting window is registered, so always guard with `.length > 0` before accessing `[0].window`.
+  - The `#preMiniState` stores a full bounds object `{ x, y, width, height }` from `getBounds()` and is restored with `setBounds()` — both are synchronous and work correctly for this use case.
+---
+
 ## 2026-02-22 - US-006
 - What was implemented: Added close confirmation dialog to the meeting window factory. The `close` event handler checks `meetingWindow.forceClose` — if set, it skips the dialog and lets the window close. Otherwise it calls `e.preventDefault()`, shows a `dialog.showMessageBox` with ['Leave', 'Cancel'] buttons. Selecting 'Leave' (index 0) sets `forceClose = true` and calls `meetingWindow.close()` again. Added a `did-navigate` handler on `meetingWindow.webContents` — if the navigated-to URL does NOT match `config.meetupJoinRegEx`, it sets `forceClose = true` and calls `meetingWindow.close()` (Teams-initiated meeting end, no dialog). The existing `closed` event handler (for `windowManager.unregister`) is preserved.
 - Files changed:
