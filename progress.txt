@@ -49,3 +49,13 @@
   - Module-level vars (`config`, `iconChooser`, `appConfig`, `screenSharingService`) persist after `onAppReady` so `createMainWindow()` can safely reuse them on subsequent calls.
   - `Menus.open()` is triggered by the "Open" menu item in appMenu.js (the tray's context menu). Both `open()` and `showAndFocusWindow()` must be updated for consistent behaviour.
 ---
+
+## 2026-02-22 - US-004
+- What was implemented: Created `app/meetingWindow/index.js` with a `createMeetingWindow(config)` factory function. It uses `electron-window-state` with `file: 'meeting-window-state'` for separate size/position persistence. Sets `partition: 'persist:teams-for-linux-session'` and the same preload path as the main window (`app/browser/preload.js`). Minimum size 480×320. Registers the window in WindowManager as type `'meeting'` with id `'meeting'` and unregisters on the `'closed'` event. The factory does NOT load any URL.
+- Files changed:
+  - `app/meetingWindow/index.js` (new)
+- **Learnings for future iterations:**
+  - `electron-window-state` option for custom filename is `file` (just the base name, no `.json` extension needed).
+  - From `app/meetingWindow/`, the preload path `path.join(__dirname, '..', 'browser', 'preload.js')` correctly resolves to `app/browser/preload.js` — same as main window.
+  - The main window uses `partition: this.config.partition`; the meeting window explicitly sets `'persist:teams-for-linux-session'` per PRD requirements (both resolve to the same session in practice).
+---
