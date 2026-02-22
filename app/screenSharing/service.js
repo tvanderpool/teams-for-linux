@@ -1,10 +1,12 @@
 const { ipcMain, BrowserWindow, desktopCapturer, screen } = require("electron");
 const path = require("node:path");
+const windowManager = require("../windowManager");
 
 class ScreenSharingService {
   #picker = null;
   #selectedScreenShareSource = null;
   #previewWindow = null;
+  #preMiniState = null;
 
   initialize() {
     // Get available desktop capturer sources (screens/windows) for sharing
@@ -114,7 +116,7 @@ class ScreenSharingService {
     }
   }
 
-  #handleScreenSharingStarted(_event, sourceId) {
+  #handleScreenSharingStarted(event, sourceId) {
     // Only update if we received a valid source ID format (screen:x:y or window:x:y)
     if (sourceId) {
       const isValidFormat = sourceId.startsWith('screen:') || sourceId.startsWith('window:');
@@ -123,13 +125,35 @@ class ScreenSharingService {
       }
       // Ignore UUID format (MediaStream.id) - keep existing value
     }
+
+    // If the sender is the meeting window, shrink it to mini view
+    const meetingEntries = windowManager.getByType('meeting');
+    if (meetingEntries.length > 0) {
+      const meetingWindow = meetingEntries[0].window;
+      if (!meetingWindow.isDestroyed() && event.sender === meetingWindow.webContents) {
+        this.#preMiniState = meetingWindow.getBounds();
+        meetingWindow.setSize(400, 300);
+      }
+    }
   }
 
-  #handleScreenSharingStopped() {
+  #handleScreenSharingStopped(event) {
     this.#selectedScreenShareSource = null;
 
     if (this.#previewWindow && !this.#previewWindow.isDestroyed()) {
       this.#previewWindow.close();
+    }
+
+    // If the sender is the meeting window, restore its previous size and position
+    const meetingEntries = windowManager.getByType('meeting');
+    if (meetingEntries.length > 0) {
+      const meetingWindow = meetingEntries[0].window;
+      if (!meetingWindow.isDestroyed() && event.sender === meetingWindow.webContents) {
+        if (this.#preMiniState !== null) {
+          meetingWindow.setBounds(this.#preMiniState);
+          this.#preMiniState = null;
+        }
+      }
     }
   }
 
