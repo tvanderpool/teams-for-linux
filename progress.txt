@@ -1,3 +1,14 @@
+## 2026-02-22 - US-006
+- What was implemented: Added close confirmation dialog to the meeting window factory. The `close` event handler checks `meetingWindow.forceClose` — if set, it skips the dialog and lets the window close. Otherwise it calls `e.preventDefault()`, shows a `dialog.showMessageBox` with ['Leave', 'Cancel'] buttons. Selecting 'Leave' (index 0) sets `forceClose = true` and calls `meetingWindow.close()` again. Added a `did-navigate` handler on `meetingWindow.webContents` — if the navigated-to URL does NOT match `config.meetupJoinRegEx`, it sets `forceClose = true` and calls `meetingWindow.close()` (Teams-initiated meeting end, no dialog). The existing `closed` event handler (for `windowManager.unregister`) is preserved.
+- Files changed:
+  - `app/meetingWindow/index.js` (added `dialog` import, `close` event handler with confirmation dialog, `did-navigate` handler)
+- **Learnings for future iterations:**
+  - Use `close` event (preventable) for confirmation dialogs; `closed` event (not preventable) for cleanup only.
+  - `meetingWindow.forceClose` is a custom property on the BrowserWindow instance — safe in Electron and works across event handlers.
+  - `dialog.showMessageBox` is async; the `close` event handler must be `async` and `e.preventDefault()` must be called synchronously before the await.
+  - The `did-navigate` handler fires on every navigation including the initial meeting URL load — ensure the condition checks for NON-meeting URLs to avoid closing on legitimate redirects within the meeting flow.
+---
+
 ## 2026-02-22 - US-005
 - What was implemented: Added `openInMeetingWindow(url)` helper in `app/mainAppWindow/index.js` that checks `windowManager.getByType('meeting')` for an existing meeting window — if found, focuses it and calls `loadURL`; otherwise calls `createMeetingWindow(config)`, attaches a `ready-to-show` handler to show the window, then calls `loadURL`. Modified `onNewWindow` (setWindowOpenHandler callback) to call `openInMeetingWindow` when the URL matches `meetupJoinRegEx` (replaces old behaviour of optionally loading in main window). Added `onWillNavigate(event, url)` which prevents the navigation, calls `openInMeetingWindow`, and reloads the main window to its pre-navigation URL. Registered `will-navigate` in `addEventHandlers()`.
 - Files changed:
