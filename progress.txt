@@ -1,3 +1,14 @@
+## 2026-02-22 - US-005
+- What was implemented: Added `openInMeetingWindow(url)` helper in `app/mainAppWindow/index.js` that checks `windowManager.getByType('meeting')` for an existing meeting window — if found, focuses it and calls `loadURL`; otherwise calls `createMeetingWindow(config)`, attaches a `ready-to-show` handler to show the window, then calls `loadURL`. Modified `onNewWindow` (setWindowOpenHandler callback) to call `openInMeetingWindow` when the URL matches `meetupJoinRegEx` (replaces old behaviour of optionally loading in main window). Added `onWillNavigate(event, url)` which prevents the navigation, calls `openInMeetingWindow`, and reloads the main window to its pre-navigation URL. Registered `will-navigate` in `addEventHandlers()`.
+- Files changed:
+  - `app/mainAppWindow/index.js` (added createMeetingWindow import, openInMeetingWindow helper, onWillNavigate, updated onNewWindow, registered will-navigate)
+- **Learnings for future iterations:**
+  - The `setWindowOpenHandler` callback is already connected via `window.webContents.setWindowOpenHandler(onNewWindow)` in `addEventHandlers()` — adding `will-navigate` alongside it covers both paths Teams may use.
+  - The `window` module-level variable may be `null` if called during a race condition; `openInMeetingWindow` accesses it only indirectly through `config.chromeUserAgent` so it's safe.
+  - `ready-to-show` + `loadURL` is the standard pattern for showing new BrowserWindows after content loads.
+  - `windowManager.getByType('meeting')[0].window` gives direct access to the meeting BrowserWindow.
+---
+
 ## Codebase Patterns
 - Use `const` and `let` (never `var`); arrow functions; async/await
 - New modules go in `app/<moduleName>/index.js` following single-responsibility principle
