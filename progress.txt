@@ -5,7 +5,9 @@
 - Run `npm run lint` before committing; ESLint config is in project root
 - IPC channels must be added to allowlist in `app/security/ipcValidator.js`
 - The `app/mainAppWindow/index.js` `onAppReady` function is the startup entry point where window is created
-- `windowManager` singleton lives at `app/windowManager/index.js` — require it with `require('../windowManager')`
+- `windowManager` singleton lives at `app/windowManager/index.js` — require it with `require('../windowManager')` (from mainAppWindow) or `require('./windowManager')` (from app/index.js)
+- Tray icon active = `config.trayIconEnabled` is truthy; used to decide whether to keep process alive after all windows close
+- To override Electron's default quit-on-all-windows-closed, add `app.on('window-all-closed', () => {})` and handle quit via `windowManager.on('all-closed', ...)`
 
 ---
 
@@ -21,4 +23,15 @@
   - `npm run lint` exits with 0 and no output when all checks pass.
   - The window is created inside `onAppReady` at `app/mainAppWindow/index.js:261` — that is the right registration point.
   - Private fields (`#registry`) require Node 12+ — fine for this Electron project.
+---
+
+## 2026-02-22 - US-002
+- What was implemented: Modified `onWindowClosed()` in `app/mainAppWindow/index.js` to call `windowManager.unregister('main')` instead of `app.quit()`. In `app/index.js`, added `require('./windowManager')`, added `app.on('window-all-closed', () => {})` to override Electron's default quit-all behaviour, and added `windowManager.on('all-closed', () => { if (!config.trayIconEnabled) { app.quit(); } })` so the process exits only when the registry is empty and no tray is keeping it alive.
+- Files changed:
+  - `app/mainAppWindow/index.js` (onWindowClosed: app.quit → windowManager.unregister)
+  - `app/index.js` (added windowManager require + window-all-closed + all-closed handlers)
+- **Learnings for future iterations:**
+  - `app/index.js` had no pre-existing `window-all-closed` handler; you must add one to suppress Electron's default quit.
+  - The tray-enabled check uses `config.trayIconEnabled` (not `config.appIconPath` as the PRD description suggests).
+  - `windowManager` in `app/index.js` is required as `./windowManager` (not `../windowManager`).
 ---
