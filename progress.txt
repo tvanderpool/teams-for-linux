@@ -4,10 +4,12 @@
 - Private class fields use `#property` syntax
 - Run `npm run lint` before committing; ESLint config is in project root
 - IPC channels must be added to allowlist in `app/security/ipcValidator.js`
-- The `app/mainAppWindow/index.js` `onAppReady` function is the startup entry point where window is created
+- `createMainWindow()` in `app/mainAppWindow/index.js` is the window factory (exported). `onAppReady` initialises module-level state (config, iconChooser, etc.) then calls `createMainWindow()`. Call `createMainWindow()` to recreate the window after closure.
 - `windowManager` singleton lives at `app/windowManager/index.js` — require it with `require('../windowManager')` (from mainAppWindow) or `require('./windowManager')` (from app/index.js)
 - Tray icon active = `config.trayIconEnabled` is truthy; used to decide whether to keep process alive after all windows close
 - To override Electron's default quit-on-all-windows-closed, add `app.on('window-all-closed', () => {})` and handle quit via `windowManager.on('all-closed', ...)`
+- Avoid circular deps: `mainAppWindow → menus → tray`. Pass factory callbacks as constructor params rather than requiring mainAppWindow from menus/tray.
+- `Menus` constructor signature: `(window, configGroup, iconPath, connectionManager, createMainWindow)` — the 5th param is optional and enables tray/open to recreate the window.
 
 ---
 
@@ -34,4 +36,16 @@
   - `app/index.js` had no pre-existing `window-all-closed` handler; you must add one to suppress Electron's default quit.
   - The tray-enabled check uses `config.trayIconEnabled` (not `config.appIconPath` as the PRD description suggests).
   - `windowManager` in `app/index.js` is required as `./windowManager` (not `../windowManager`).
+---
+
+## 2026-02-22 - US-003
+- What was implemented: Extracted `createMainWindow()` from `onAppReady` in `app/mainAppWindow/index.js` and exported it. Updated `Menus` constructor to accept a 5th `createMainWindow` callback parameter and pass it to `ApplicationTray`. Updated `ApplicationTray` constructor to accept a 5th `createMainWindow` parameter. Updated `showAndFocusWindow()` in `tray.js` and `open()` in `menus/index.js` to check `windowManager.getByType('main')` first — if the main window exists, get it from the registry and show/focus/restore it; if not, call `createMainWindow()` to recreate it.
+- Files changed:
+  - `app/mainAppWindow/index.js` (extracted createMainWindow, exported it, passes it to Menus)
+  - `app/menus/index.js` (added windowManager import, createMainWindow param, updated open())
+  - `app/menus/tray.js` (added windowManager import, createMainWindow param, updated showAndFocusWindow())
+- **Learnings for future iterations:**
+  - `app/mainAppWindow/index.js` requires `../menus`, so menus/tray must NOT require mainAppWindow (circular dep). Use callback injection instead.
+  - Module-level vars (`config`, `iconChooser`, `appConfig`, `screenSharingService`) persist after `onAppReady` so `createMainWindow()` can safely reuse them on subsequent calls.
+  - `Menus.open()` is triggered by the "Open" menu item in appMenu.js (the tray's context menu). Both `open()` and `showAndFocusWindow()` must be updated for consistent behaviour.
 ---
