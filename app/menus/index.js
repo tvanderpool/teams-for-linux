@@ -16,14 +16,16 @@ const DocumentationWindow = require("../documentationWindow");
 const GpuInfoWindow = require("../gpuInfoWindow");
 const JoinMeetingDialog = require("../joinMeetingDialog");
 const autoUpdaterModule = require("../autoUpdater");
+const windowManager = require("../windowManager");
 
 let _Menus_onSpellCheckerLanguageChanged = new WeakMap();
 class Menus {
-  constructor(window, configGroup, iconPath, connectionManager) {
+  constructor(window, configGroup, iconPath, connectionManager, createMainWindow) {
     this.window = window;
     this.iconPath = iconPath;
     this.configGroup = configGroup;
     this.connectionManager = connectionManager;
+    this.createMainWindow = createMainWindow;
     this.allowQuit = false;
     this.documentationWindow = new DocumentationWindow();
     this.gpuInfoWindow = new GpuInfoWindow();
@@ -83,11 +85,19 @@ class Menus {
   }
 
   open() {
-    if (!this.window.isVisible()) {
-      this.window.show();
+    const mainWindows = windowManager.getByType('main');
+    if (mainWindows.length > 0) {
+      const win = mainWindows[0].window;
+      if (win.isMinimized()) {
+        win.restore();
+      }
+      if (!win.isVisible()) {
+        win.show();
+      }
+      win.focus();
+    } else if (this.createMainWindow) {
+      this.createMainWindow();
     }
-
-    this.window.focus();
   }
 
   about() {
@@ -146,7 +156,8 @@ class Menus {
         this.window,
         menu.submenu,
         this.iconPath,
-        this.configGroup.startupConfig
+        this.configGroup.startupConfig,
+        this.createMainWindow
       );
       this.tray.initialize();
     }

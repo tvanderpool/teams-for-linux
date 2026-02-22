@@ -254,6 +254,10 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
     }
   }
 
+  await createMainWindow();
+};
+
+async function createMainWindow() {
   const browserWindowManager = new BrowserWindowManager({
     config: config,
     iconChooser: iconChooser,
@@ -286,7 +290,7 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   connectionManager = new ConnectionManager();
 
   if (iconChooser) {
-    menus = new Menus(window, configGroup, iconChooser.getFile(), connectionManager);
+    menus = new Menus(window, appConfig, iconChooser.getFile(), connectionManager, createMainWindow);
     menus.onSpellCheckerLanguageChanged = onSpellCheckerLanguageChanged;
   }
 
@@ -301,7 +305,9 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   });
 
   applyAppConfiguration(config, window);
-};
+}
+
+exports.createMainWindow = createMainWindow;
 
 function onSpellCheckerLanguageChanged(languages) {
   appConfig.legacyConfigStore.set("spellCheckerLanguages", languages);

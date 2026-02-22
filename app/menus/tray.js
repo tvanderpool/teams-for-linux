@@ -1,13 +1,15 @@
 const { Tray, Menu, ipcMain, nativeImage } = require("electron");
 const os = require("node:os");
+const windowManager = require("../windowManager");
 const isMac = os.platform() === "darwin";
 
 class ApplicationTray {
-  constructor(window, appMenu, iconPath, config) {
+  constructor(window, appMenu, iconPath, config, createMainWindow) {
     this.window = window;
     this.iconPath = iconPath;
     this.appMenu = appMenu;
     this.config = config;
+    this.createMainWindow = createMainWindow;
 
     this.tray = new Tray(this.getIconImage(this.iconPath));
     this.tray.setToolTip(this.config.appTitle);
@@ -44,8 +46,17 @@ class ApplicationTray {
   }
 
   showAndFocusWindow() {
-    this.window.show();
-    this.window.focus();
+    const mainWindows = windowManager.getByType('main');
+    if (mainWindows.length > 0) {
+      const win = mainWindows[0].window;
+      if (win.isMinimized()) {
+        win.restore();
+      }
+      win.show();
+      win.focus();
+    } else if (this.createMainWindow) {
+      this.createMainWindow();
+    }
   }
 
   updateTrayImage(iconUrl, flash, count) {
