@@ -1,4 +1,4 @@
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, dialog } = require('electron');
 const path = require('node:path');
 const windowStateKeeper = require('electron-window-state');
 const windowManager = require('../windowManager');
@@ -46,8 +46,34 @@ function createMeetingWindow(config) {
 
   windowManager.register('meeting', 'meeting', meetingWindow);
 
+  meetingWindow.on('close', async (e) => {
+    if (meetingWindow.forceClose) {
+      return;
+    }
+    e.preventDefault();
+    const { response } = await dialog.showMessageBox(meetingWindow, {
+      type: 'question',
+      buttons: ['Leave', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Leave Meeting',
+      message: 'Leave meeting? Closing this window will end your participation.',
+    });
+    if (response === 0) {
+      meetingWindow.forceClose = true;
+      meetingWindow.close();
+    }
+  });
+
   meetingWindow.on('closed', () => {
     windowManager.unregister('meeting');
+  });
+
+  meetingWindow.webContents.on('did-navigate', (_event, url) => {
+    if (!new RegExp(config.meetupJoinRegEx).test(url)) {
+      meetingWindow.forceClose = true;
+      meetingWindow.close();
+    }
   });
 
   return meetingWindow;
