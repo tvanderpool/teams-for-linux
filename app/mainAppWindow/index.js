@@ -18,6 +18,7 @@ const TrayIconChooser = require("../browser/tools/trayIconChooser");
 require("../appConfiguration");
 const ConnectionManager = require("../connectionManager");
 const BrowserWindowManager = require("../mainAppWindow/browserWindowManager");
+const windowManager = require("../windowManager");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -259,6 +260,7 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   });
 
   window = await browserWindowManager.createWindow();
+  windowManager.register('main', 'main', window);
   streamSelector = new StreamSelector(window);
 
   window.webContents.session.setDisplayMediaRequestHandler(
