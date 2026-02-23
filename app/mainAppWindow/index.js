@@ -18,6 +18,8 @@ const TrayIconChooser = require("../browser/tools/trayIconChooser");
 require("../appConfiguration");
 const ConnectionManager = require("../connectionManager");
 const BrowserWindowManager = require("../mainAppWindow/browserWindowManager");
+const windowManager = require("../windowManager");
+const { createMeetingWindow } = require("../meetingWindow");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -253,12 +255,17 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
     }
   }
 
+  await createMainWindow();
+};
+
+async function createMainWindow() {
   const browserWindowManager = new BrowserWindowManager({
     config: config,
     iconChooser: iconChooser,
   });
 
   window = await browserWindowManager.createWindow();
+  windowManager.register('main', 'main', window);
   streamSelector = new StreamSelector(window);
 
   window.webContents.session.setDisplayMediaRequestHandler(
@@ -284,7 +291,7 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   connectionManager = new ConnectionManager();
 
   if (iconChooser) {
-    menus = new Menus(window, configGroup, iconChooser.getFile(), connectionManager);
+    menus = new Menus(window, appConfig, iconChooser.getFile(), connectionManager, createMainWindow);
     menus.onSpellCheckerLanguageChanged = onSpellCheckerLanguageChanged;
   }
 
@@ -299,7 +306,9 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   });
 
   applyAppConfiguration(config, window);
-};
+}
+
+exports.createMainWindow = createMainWindow;
 
 function onSpellCheckerLanguageChanged(languages) {
   appConfig.legacyConfigStore.set("spellCheckerLanguages", languages);
@@ -547,11 +556,22 @@ function onBeforeSendHeadersHandler(detail, callback) {
   }
 }
 
+function openInMeetingWindow(url) {
+  const existing = windowManager.getByType('meeting');
+  if (existing.length > 0 && !existing[0].window.isDestroyed()) {
+    const meetingWindow = existing[0].window;
+    meetingWindow.focus();
+    meetingWindow.loadURL(url, { userAgent: config.chromeUserAgent });
+  } else {
+    const meetingWindow = createMeetingWindow(config);
+    meetingWindow.once('ready-to-show', () => meetingWindow.show());
+    meetingWindow.loadURL(url, { userAgent: config.chromeUserAgent });
+  }
+}
+
 function onNewWindow(details) {
   if (new RegExp(config.meetupJoinRegEx).test(details.url)) {
-    if (config.onNewWindowOpenMeetupJoinUrlInApp) {
-      window.loadURL(details.url, { userAgent: config.chromeUserAgent });
-    }
+    openInMeetingWindow(details.url);
     return { action: "deny" };
   } else if (
     details.url === "about:blank" ||
@@ -563,6 +583,17 @@ function onNewWindow(details) {
   }
 
   return secureOpenLink(details);
+}
+
+function onWillNavigate(event, url) {
+  if (new RegExp(config.meetupJoinRegEx).test(url)) {
+    event.preventDefault();
+    const currentUrl = window.webContents.getURL();
+    openInMeetingWindow(url);
+    if (currentUrl && currentUrl !== 'about:blank') {
+      window.loadURL(currentUrl, { userAgent: config.chromeUserAgent });
+    }
+  }
 }
 
 function onPageTitleUpdated(_event, title) {
@@ -590,7 +621,7 @@ function onWindowClosed() {
   }
 
   window = null;
-  app.quit();
+  windowManager.unregister('main');
 }
 
 function addEventHandlers() {
@@ -611,6 +642,7 @@ function addEventHandlers() {
   );
   window.webContents.on("did-finish-load", onDidFinishLoad);
   window.webContents.on("did-frame-finish-load", onDidFrameFinishLoad);
+  window.webContents.on("will-navigate", onWillNavigate);
   window.on("closed", onWindowClosed);
   window.webContents.addListener("before-input-event", onBeforeInput);
 

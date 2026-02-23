@@ -1,0 +1,94 @@
+## 2026-02-22 - US-007
+- What was implemented: Modified `app/screenSharing/service.js` to add mini-view behaviour for the meeting window during screen sharing. Added `const windowManager = require('../windowManager')` import and `#preMiniState = null` private field. In `#handleScreenSharingStarted(event, sourceId)`: after tracking the source ID, checks if `event.sender` equals the meeting window's `webContents`. If so, records `meetingWindow.getBounds()` as `#preMiniState` and calls `meetingWindow.setSize(400, 300)`. In `#handleScreenSharingStopped(event)`: after clearing source and closing preview window, checks if `event.sender` equals the meeting window's `webContents`. If so and `#preMiniState` is not null, calls `meetingWindow.setBounds(#preMiniState)` and resets `#preMiniState = null`.
+- Files changed:
+  - `app/screenSharing/service.js` (added windowManager import, #preMiniState field, mini-view logic in screen-sharing start/stop handlers)
+- **Learnings for future iterations:**
+  - `ipcMain.on` handler methods receive `event` as their first parameter; renaming to `_event` (unused) loses the ability to identify the sender. Changed from `_event` to `event` to access `event.sender`.
+  - `event.sender` in an `ipcMain.on` handler is the `WebContents` that sent the IPC message. Compare it directly to `meetingWindow.webContents` (strict equality works for reference comparison).
+  - `windowManager.getByType('meeting')` returns `[]` when no meeting window is registered, so always guard with `.length > 0` before accessing `[0].window`.
+  - The `#preMiniState` stores a full bounds object `{ x, y, width, height }` from `getBounds()` and is restored with `setBounds()` — both are synchronous and work correctly for this use case.
+---
+
+## 2026-02-22 - US-006
+- What was implemented: Added close confirmation dialog to the meeting window factory. The `close` event handler checks `meetingWindow.forceClose` — if set, it skips the dialog and lets the window close. Otherwise it calls `e.preventDefault()`, shows a `dialog.showMessageBox` with ['Leave', 'Cancel'] buttons. Selecting 'Leave' (index 0) sets `forceClose = true` and calls `meetingWindow.close()` again. Added a `did-navigate` handler on `meetingWindow.webContents` — if the navigated-to URL does NOT match `config.meetupJoinRegEx`, it sets `forceClose = true` and calls `meetingWindow.close()` (Teams-initiated meeting end, no dialog). The existing `closed` event handler (for `windowManager.unregister`) is preserved.
+- Files changed:
+  - `app/meetingWindow/index.js` (added `dialog` import, `close` event handler with confirmation dialog, `did-navigate` handler)
+- **Learnings for future iterations:**
+  - Use `close` event (preventable) for confirmation dialogs; `closed` event (not preventable) for cleanup only.
+  - `meetingWindow.forceClose` is a custom property on the BrowserWindow instance — safe in Electron and works across event handlers.
+  - `dialog.showMessageBox` is async; the `close` event handler must be `async` and `e.preventDefault()` must be called synchronously before the await.
+  - The `did-navigate` handler fires on every navigation including the initial meeting URL load — ensure the condition checks for NON-meeting URLs to avoid closing on legitimate redirects within the meeting flow.
+---
+
+## 2026-02-22 - US-005
+- What was implemented: Added `openInMeetingWindow(url)` helper in `app/mainAppWindow/index.js` that checks `windowManager.getByType('meeting')` for an existing meeting window — if found, focuses it and calls `loadURL`; otherwise calls `createMeetingWindow(config)`, attaches a `ready-to-show` handler to show the window, then calls `loadURL`. Modified `onNewWindow` (setWindowOpenHandler callback) to call `openInMeetingWindow` when the URL matches `meetupJoinRegEx` (replaces old behaviour of optionally loading in main window). Added `onWillNavigate(event, url)` which prevents the navigation, calls `openInMeetingWindow`, and reloads the main window to its pre-navigation URL. Registered `will-navigate` in `addEventHandlers()`.
+- Files changed:
+  - `app/mainAppWindow/index.js` (added createMeetingWindow import, openInMeetingWindow helper, onWillNavigate, updated onNewWindow, registered will-navigate)
+- **Learnings for future iterations:**
+  - The `setWindowOpenHandler` callback is already connected via `window.webContents.setWindowOpenHandler(onNewWindow)` in `addEventHandlers()` — adding `will-navigate` alongside it covers both paths Teams may use.
+  - The `window` module-level variable may be `null` if called during a race condition; `openInMeetingWindow` accesses it only indirectly through `config.chromeUserAgent` so it's safe.
+  - `ready-to-show` + `loadURL` is the standard pattern for showing new BrowserWindows after content loads.
+  - `windowManager.getByType('meeting')[0].window` gives direct access to the meeting BrowserWindow.
+---
+
+## Codebase Patterns
+- Use `const` and `let` (never `var`); arrow functions; async/await
+- New modules go in `app/<moduleName>/index.js` following single-responsibility principle
+- Private class fields use `#property` syntax
+- Run `npm run lint` before committing; ESLint config is in project root
+- IPC channels must be added to allowlist in `app/security/ipcValidator.js`
+- `createMainWindow()` in `app/mainAppWindow/index.js` is the window factory (exported). `onAppReady` initialises module-level state (config, iconChooser, etc.) then calls `createMainWindow()`. Call `createMainWindow()` to recreate the window after closure.
+- `windowManager` singleton lives at `app/windowManager/index.js` — require it with `require('../windowManager')` (from mainAppWindow) or `require('./windowManager')` (from app/index.js)
+- Tray icon active = `config.trayIconEnabled` is truthy; used to decide whether to keep process alive after all windows close
+- To override Electron's default quit-on-all-windows-closed, add `app.on('window-all-closed', () => {})` and handle quit via `windowManager.on('all-closed', ...)`
+- Avoid circular deps: `mainAppWindow → menus → tray`. Pass factory callbacks as constructor params rather than requiring mainAppWindow from menus/tray.
+- `Menus` constructor signature: `(window, configGroup, iconPath, connectionManager, createMainWindow)` — the 5th param is optional and enables tray/open to recreate the window.
+
+---
+
+## 2026-02-22 - US-001
+- What was implemented: Created `app/windowManager/index.js` — an EventEmitter-based singleton class with `register(type, id, window)`, `unregister(id)`, `getAll()`, `getByType(type)` methods and `'all-closed'` event emission when registry empties. Updated `app/mainAppWindow/index.js` to `require('../windowManager')` and call `windowManager.register('main', 'main', window)` immediately after the main BrowserWindow is created in `onAppReady`.
+- Files changed:
+  - `app/windowManager/index.js` (new)
+  - `app/mainAppWindow/index.js` (added import + register call)
+- **Learnings for future iterations:**
+  - The branch must be created fresh from the current HEAD (`feature/multi-window`) since `ralph/multi-window-meetings` didn't exist yet.
+  - `prd.json` is at `ralph/prd.json`, not the repo root.
+  - `progress.txt` did not exist — had to create it.
+  - `npm run lint` exits with 0 and no output when all checks pass.
+  - The window is created inside `onAppReady` at `app/mainAppWindow/index.js:261` — that is the right registration point.
+  - Private fields (`#registry`) require Node 12+ — fine for this Electron project.
+---
+
+## 2026-02-22 - US-002
+- What was implemented: Modified `onWindowClosed()` in `app/mainAppWindow/index.js` to call `windowManager.unregister('main')` instead of `app.quit()`. In `app/index.js`, added `require('./windowManager')`, added `app.on('window-all-closed', () => {})` to override Electron's default quit-all behaviour, and added `windowManager.on('all-closed', () => { if (!config.trayIconEnabled) { app.quit(); } })` so the process exits only when the registry is empty and no tray is keeping it alive.
+- Files changed:
+  - `app/mainAppWindow/index.js` (onWindowClosed: app.quit → windowManager.unregister)
+  - `app/index.js` (added windowManager require + window-all-closed + all-closed handlers)
+- **Learnings for future iterations:**
+  - `app/index.js` had no pre-existing `window-all-closed` handler; you must add one to suppress Electron's default quit.
+  - The tray-enabled check uses `config.trayIconEnabled` (not `config.appIconPath` as the PRD description suggests).
+  - `windowManager` in `app/index.js` is required as `./windowManager` (not `../windowManager`).
+---
+
+## 2026-02-22 - US-003
+- What was implemented: Extracted `createMainWindow()` from `onAppReady` in `app/mainAppWindow/index.js` and exported it. Updated `Menus` constructor to accept a 5th `createMainWindow` callback parameter and pass it to `ApplicationTray`. Updated `ApplicationTray` constructor to accept a 5th `createMainWindow` parameter. Updated `showAndFocusWindow()` in `tray.js` and `open()` in `menus/index.js` to check `windowManager.getByType('main')` first — if the main window exists, get it from the registry and show/focus/restore it; if not, call `createMainWindow()` to recreate it.
+- Files changed:
+  - `app/mainAppWindow/index.js` (extracted createMainWindow, exported it, passes it to Menus)
+  - `app/menus/index.js` (added windowManager import, createMainWindow param, updated open())
+  - `app/menus/tray.js` (added windowManager import, createMainWindow param, updated showAndFocusWindow())
+- **Learnings for future iterations:**
+  - `app/mainAppWindow/index.js` requires `../menus`, so menus/tray must NOT require mainAppWindow (circular dep). Use callback injection instead.
+  - Module-level vars (`config`, `iconChooser`, `appConfig`, `screenSharingService`) persist after `onAppReady` so `createMainWindow()` can safely reuse them on subsequent calls.
+  - `Menus.open()` is triggered by the "Open" menu item in appMenu.js (the tray's context menu). Both `open()` and `showAndFocusWindow()` must be updated for consistent behaviour.
+---
+
+## 2026-02-22 - US-004
+- What was implemented: Created `app/meetingWindow/index.js` with a `createMeetingWindow(config)` factory function. It uses `electron-window-state` with `file: 'meeting-window-state'` for separate size/position persistence. Sets `partition: 'persist:teams-for-linux-session'` and the same preload path as the main window (`app/browser/preload.js`). Minimum size 480×320. Registers the window in WindowManager as type `'meeting'` with id `'meeting'` and unregisters on the `'closed'` event. The factory does NOT load any URL.
+- Files changed:
+  - `app/meetingWindow/index.js` (new)
+- **Learnings for future iterations:**
+  - `electron-window-state` option for custom filename is `file` (just the base name, no `.json` extension needed).
+  - From `app/meetingWindow/`, the preload path `path.join(__dirname, '..', 'browser', 'preload.js')` correctly resolves to `app/browser/preload.js` — same as main window.
+  - The main window uses `partition: this.config.partition`; the meeting window explicitly sets `'persist:teams-for-linux-session'` per PRD requirements (both resolve to the same session in practice).
+---
